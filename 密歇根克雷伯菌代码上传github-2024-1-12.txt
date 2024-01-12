@@ -1,0 +1,194 @@
+###进化树构建过程
+
+cat final-snp/* >274-total.snp
+cat final-indel/* >274-total.indel
+
+cut -f "1,2" 274-total.snp| uniq > 274_snp_uniq.txt
+cut -f "1" 274-total.indel| uniq > 274_indel_uniq.txt
+
+sort -n 274_snp_uniq.txt | uniq > 274_snp_sort_uniq.txt
+sort -n 274_indel_uniq.txt | uniq > 274_indel_sort_uniq.txt
+
+删除snp区的indel位点：
+
+perl 
+522258 274_snp_sort_uniq.txt
+510295 total_snp_noindel.txt
+11963 rm_indel.txt
+对无indel位点的snp进行排序：
+sort -n total_snp_noindel.txt > final_sort_total_snp_noindel.txt
+删除mobile element的位点：
+perl 6-remove_mobile.pl
+对删除mobile element的文件进行排序，得到最后的snp数据集
+sort -n total_snp_noindel_nomobile.txt >final_total_snp_noindel_nomobile.txt
+
+503605 final_total_snp_noindel_nomobile.txt
+
+7.将每个菌株的snp文件生成
+perl 9-SNP_sort_all.pl
+8.将snp文件转为fasta格式
+perl 10-SNP_sort_seqs.pl
+9.将fasta文件合成一个文件
+cat snp-data-to-fasta/*.fasta  >274_total.fasta
+外群设置：
+
+perl ./7-snp_sort.pl ./FH-1.snp  ../final_total_snp_noindel_nomobile.txt  FH-1.snp.sort.txt
+
+perl 10-SNP_sort_seqs.pl###生成/workdir/lishsh/12084/KM-ALL/KM-275-Tree/tree-data/outgroup/FH-1.fasta
+
+cat  FH-1.fasta 274_total.fasta>274_and_outgroup.fasta
+FastTree -nt -gtr -n 100 274.fasta> 274-no-outgroup-fast.tree
+iqtree -s /workdir/lishsh/12084/KM-ALL/KM-275-Tree/tree-data/Tree/274_and_outgroup.fasta -B 2000 -m GTR+I+G -T AUTO
+
+
+
+
+第一部分：所有菌株的热图绘制
+
+library("pheatmap")
+ani= read.csv("142_6_ANI_data.txt",header =T,sep="\t",row.names=1)###输入数据
+colnames(ani)=rownames(ani)
+id= read.csv("142-6.txt",header =T,sep="\t",row.names=1)###输入数据
+ann_colors = list(
+	Species = c("Klebsiella grimontii"="#00FF00","Klebsiella michiganensis"="Yellow","Klebsiella pasteurii" = "blue","Unkown"="black")
+)
+
+pheatmap(treeheight_row = 0, treeheight_col = 0,color = colorRampPalette(colors = c("#FEE6CE","#FDD0A2","#F16913"))(100),ani,annotation_row =id,annotation_col =id, annotation_colors = ann_colors, main = "ANI_identity_cluster",fontsize = 7,fontsize_row=4,fontsize_col=4,height=8,width=9.7)
+
+pheatmap(treeheight_row = 0, treeheight_col = 0,ani,annotation_row =id,annotation_col =id, annotation_colors = ann_colors, main = "ANI identity cluster",fontsize = 7,fontsize_row=2,fontsize_col=2,height=12,width=10)
+####以上配色选一个
+第二部分：
+Part1:不同ST的菌株耐药基因数目的比较
+
+library(ggplot2)
+library(ggsignif)
+library(RColorBrewer)
+
+summary(df)
+df$ST=factor(df$ST)
+#df$ST=factor(df$ST,levels = c("ST27","ST43","ST84","50","43","11","88","40","85"))
+df$ST=reorder(df$ST,-df$Number_of_resistant_genes)
+p1=ggplot(df,aes(x=ST,y=Number_of_resistant_genes,fill=ST))+
+     stat_boxplot(geom="errorbar",width=0.02)+
+	 labs(x="ST",y="Number of resistant genes")+
+     geom_boxplot()+
+	 #scale_fill_manual(values = c("#996600","#CCCC00","#0099CC","#FFFF00","#99CC66","#99CC66","#99CC66","#99CC66"))+
+     #geom_signif(comparisons =list(c("ST84","ST85"),c("ST50","ST85"),c("ST43","ST85"),c("ST27","ST85")),step_increase = 0.05,textsize=10,map_signif_level = T,test = "wilcox.test")+
+     theme_bw()+
+     theme(title=element_text(size=15),axis.text.x = element_text(size=15),axis.text.y = element_text(size=15),
+     axis.text=element_text(color="black"),panel.background=element_rect(color="black",size=0.1),plot.margin=unit(rep(2,4),'lines'),
+     legend.text = element_text(size = 10),legend.key.size=unit(1,'cm'),panel.grid=element_blank())
+p1_aaas = p1 + scale_fill_npg()
+p1_aaas
+dev.off()
+
+Part2:不同Host的菌株耐药基因数目的比较
+
+library(ggplot2)
+library(ggsignif)
+library(RColorBrewer)
+library(ggsci)
+
+summary(df)
+df$ST=factor(df$Host)
+#df$ST=reorder(df$Host,-df$Number_of_resistant_genes)
+p1=ggplot(df,aes(x=Host,y=Number_of_resistant_genes,fill=ST))+
+     stat_boxplot(geom="errorbar",width=0.02)+
+	 labs(x="Host",y="Number of resistant genes")+
+     geom_boxplot()+
+	 #scale_fill_manual(values = c("#996600","#CCCC00","#0099CC","#FFFF00","#99CC66","#99CC66","#99CC66","#99CC66"))+
+     geom_signif(comparisons =list(c("Homo sapiens","Animals")),step_increase = 0.05,textsize=10,map_signif_level = T,test = "wilcox.test")+
+     theme_bw()+
+     theme(title=element_text(size=15),axis.text.x = element_text(size=15),axis.text.y = element_text(size=15),
+     axis.text=element_text(color="black"),panel.background=element_rect(color="black",size=0.1),plot.margin=unit(rep(2,4),'lines'),
+     legend.text = element_text(size = 10),legend.key.size=unit(1,'cm'),panel.grid=element_blank())
+p1_aaas = p1 + scale_fill_npg()
+p1_aaas
+dev.off()
+
+Part3:不同clade的菌株耐药基因数目的比较
+
+library(ggplot2)
+library(ggsignif)
+library(RColorBrewer)
+library(ggsci)
+
+summary(df)
+df$ST=factor(df$Clade)
+#df$ST=reorder(df$Host,-df$Number_of_resistant_genes)
+p1=ggplot(df,aes(x=Clade,y=Number_of_resistant_genes,fill=Clade))+
+     stat_boxplot(geom="errorbar",width=0.02)+
+	 labs(x="Clade",y="Number of resistant genes")+
+     geom_boxplot()+
+	 #scale_fill_manual(values = c("#996600","#CCCC00","#0099CC","#FFFF00","#99CC66","#99CC66","#99CC66","#99CC66"))+
+     geom_signif(comparisons =list(c("Clade1","Clade2")),step_increase = 0.05,textsize=10,map_signif_level = T,test = "wilcox.test")+
+     theme_bw()+
+     theme(title=element_text(size=15),axis.text.x = element_text(size=15),axis.text.y = element_text(size=15),
+     axis.text=element_text(color="black"),panel.background=element_rect(color="black",size=0.1),plot.margin=unit(rep(2,4),'lines'),
+     legend.text = element_text(size = 10),legend.key.size=unit(1,'cm'),panel.grid=element_blank())
+p1_aaas = p1 + scale_fill_npg()
+p1_aaas
+dev.off()
+
+不同的subclade:
+
+library(ggplot2)
+library(ggsignif)
+library(RColorBrewer)
+library(ggsci)
+summary(df)
+df$ST=factor(df$Clade)
+#df$ST=reorder(df$Host,-df$Number_of_resistant_genes)
+p1=ggplot(df,aes(x=Clade,y=Number_of_resistant_genes,fill=Clade))+
+     stat_boxplot(geom="errorbar",width=0.02)+
+	 labs(x="Clade",y="Number of resistant genes")+
+     geom_boxplot()+
+	 #scale_fill_manual(values = c("#996600","#CCCC00","#0099CC","#FFFF00","#99CC66","#99CC66","#99CC66","#99CC66"))+
+     geom_signif(comparisons =list(c("Clade1","Clade2-1"),c("Clade1","Clade2-2"),c("Clade1","Clade2-3"),c("Clade2-1","Clade2-2"),c("Clade2-2","Clade2-3")),step_increase = 0.05,textsize=10,map_signif_level = T,test = "wilcox.test")+
+     theme_bw()+
+     theme(title=element_text(size=15),axis.text.x = element_text(size=15),axis.text.y = element_text(size=15),
+     axis.text=element_text(color="black"),panel.background=element_rect(color="black",size=0.1),plot.margin=unit(rep(2,4),'lines'),
+     legend.text = element_text(size = 10),legend.key.size=unit(1,'cm'),panel.grid=element_blank())
+p1_aaas = p1 + scale_fill_npg()
+p1_aaas
+dev.off()
+
+
+
+第三部分：
+Part1:不同ST的菌株耐药基因数目的比较
+
+library(ggplot2)
+library(ggsignif)
+library(RColorBrewer)
+library(ggsci)
+df = read.csv("ST-and-耐药基因-grater-5.txt",header =T,sep="\t")
+summary(df)
+df$ST=factor(df$ST,levels = c("27","84","50","29","43","88","85"))
+#df$ST=reorder(df$ST,-df$Number_of_resistant_genes)
+p1=ggplot(df,aes(x=ST,y=Number_of_resistant_genes,fill=ST))+
+     stat_boxplot(geom="errorbar",width=0.02)+
+	 labs(x="ST",y="Number of resistant genes")+
+     geom_boxplot()+
+	 #scale_fill_manual(values = c("#996600","#CCCC00","#0099CC","#FFFF00","#99CC66","#99CC66","#99CC66","#99CC66"))+
+     #geom_signif(comparisons =list(c("27","85"),c("27","40"),c("43","85"),c("43","40"),c("50","85"),c("11","85"),c("11","40"),c("88","85")),step_increase = 0.04,textsize=15,map_signif_level = T,test = "wilcox.test")+
+     theme_bw()+
+     theme(title=element_text(size=15),axis.text.x = element_text(size=15),axis.text.y = element_text(size=15),
+     axis.text=element_text(color="black"),panel.background=element_rect(color="black",size=0.1),plot.margin=unit(rep(2,4),'lines'),
+     legend.text = element_text(size = 15),legend.key.size=unit(1,'cm'),panel.grid=element_blank())
+p1_aaas = p1 + scale_fill_npg()
+p1_aaas
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+
+

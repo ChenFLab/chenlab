@@ -1,0 +1,33 @@
+---
+title: "Masslin2"
+author: "wxt"
+date: "2022/10/25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Maaslin2)
+setwd('c:/R/Maaslin2')
+```
+
+## R Markdown
+
+
+
+```{r}
+Metadata_input = read.table('Metadata_input.txt', header=T, row.names=1, sep="\t", comment.char="", stringsAsFactors = F)
+Taxonomy_input = read.table('Function_selected_final_73_2_input.txt', header=T, row.names=1, sep="\t", comment.char="", quote = "")
+
+
+fit_data <- Maaslin2(
+        input_data=Taxonomy_input, input_metadata=Metadata_input,'Function_selected_final_73_2_output', transform = "LOG",
+        # fixed_effects = c('Group', 'PG','Weight','ALT', 'AST', 'BUN', 'CREA', 'CHOI', 'TG', 'HDLC', 'LDLC'),
+        normalization = 'NONE',
+        correction = "BH",
+        reference = 'Group,T2DM',
+        heatmap_first_n = 55,
+        standardize = FALSE)
+
+```
+
+

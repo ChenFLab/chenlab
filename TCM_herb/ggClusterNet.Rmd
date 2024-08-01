@@ -1,0 +1,328 @@
+---
+title: "ggClusterNet"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(phyloseq)
+library(igraph)
+library(network)
+library(sna)
+library(tidyverse)
+library(ggClusterNet)
+library(Biostrings)
+library(tidyfst)
+library(WGCNA)
+library(ggnewscale)
+library(ggrepel)
+# devtools::install_github("fstPackage/fst", ref = "develop")
+setwd('c:/R/ggClusterNet')
+
+```
+#.libPaths()
+# [1] "C:/Users/jacker_orange/AppData/Local/R/win-library/4.2"
+# [2] "C:/Program Files/R/R-4.2.1/library" 
+
+## R Markdown
+
+
+```{R}
+metadata = read.delim("./metadata_new.txt",row.names = 1)
+otutab = read.delim("./otutab613.txt", row.names=1) # xls表格里面OTU表头去掉，数字改为数值型
+taxonomy = read.table("./taxonomy.txt", row.names=1) #xls表格里面OTU表头去掉
+# tree  = read_tree("./otus.tree")
+# rep = readDNAStringSet("./otus.fa")
+
+a=rownames(metadata)
+otutab_new = data.frame(otutab[a[1]])
+
+for(i in 2:87){
+  otutab_new = data.frame(otutab_new,otutab[a[i]])
+}
+head(otutab_new)
+
+ps = phyloseq(sample_data(metadata),
+              otu_table(as.matrix(otutab_new), taxa_are_rows=TRUE),
+              tax_table(as.matrix(taxonomy))#,
+              # phy_tree(tree),
+              # refseq(rep)
+              )
+```
+
+
+### model_igraph布局
+
+```{R}
+library(WGCNA)
+result = cor_Big_micro(ps = ps,
+                   N = 2000,
+                   r.threshold=0.6,
+                   p.threshold=0.05,
+                   method = "spearman"
+                   )
+
+#--提取相关矩阵
+cor = result[[1]]
+dim(cor)
+
+
+result2 <- model_igraph(cor = cor,
+                         method = "cluster_fast_greedy",
+                         seed = 12
+)
+node = result2[[1]]
+head(node)
+
+
+dat = result2[[2]]
+head(dat)
+tem = data.frame(mod = dat$model,col = dat$color) %>%  
+  dplyr::distinct( mod, .keep_all = TRUE)  
+col = tem$col
+names(col) = tem$mod
+
+#---node节点注释#-----------
+otu_table = as.data.frame(t(vegan_otu(ps)))
+tax_table = as.data.frame(vegan_tax(ps))
+nodes = nodeadd(plotcord =node,otu_table = otu_table,tax_table = tax_table)
+head(nodes)
+#-----计算边#--------
+edge = edgeBuild(cor = cor,node = node)
+colnames(edge)[8] = "cor"
+head(edge)
+
+tem2 = dat %>% 
+  dplyr::select(OTU,model,color) %>%
+  dplyr::right_join(edge,by =c("OTU" = "OTU_1" ) ) %>%
+  dplyr::rename(OTU_1 = OTU,model1 = model,color1 = color)
+head(tem2)
+
+tem3 = dat %>% 
+  dplyr::select(OTU,model,color) %>%
+  dplyr::right_join(edge,by =c("OTU" = "OTU_2" ) ) %>%
+  dplyr::rename(OTU_2 = OTU,model2 = model,color2 = color)
+head(tem3)
+
+tem4 = tem2 %>%inner_join(tem3)
+head(tem4)
+
+edge2 = tem4 %>% mutate(color = ifelse(model1 == model2,as.character(model1),"across"),
+                        manual = ifelse(model1 == model2,as.character(color1),"#C1C1C1")
+                        )
+head(edge2)
+col_edge = edge2 %>% dplyr::distinct(color, .keep_all = TRUE)  %>% 
+  select(color,manual)
+col0 = col_edge$manual
+names(col0) = col_edge$color
+
+library(ggnewscale)
+
+p1 <- ggplot() + geom_segment(aes(x = X1, y = Y1, xend = X2, yend = Y2,color = color),
+                              data = edge2, size = 1) +
+  scale_colour_manual(values = col0) 
+
+# ggsave("./cs1.pdf",p1,width = 16,height = 14)
+p2 = p1 +
+   new_scale_color() +
+  geom_point(aes(X1, X2,color =model), data = dat,size = 4) +
+  scale_colour_manual(values = col) +
+  scale_x_continuous(breaks = NULL) + scale_y_continuous(breaks = NULL) +
+  theme(panel.background = element_blank()) +
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank()) +
+  theme(legend.background = element_rect(colour = NA)) +
+  theme(panel.background = element_rect(fill = "white",  colour = NA)) +
+  theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank())
+p2
+ggsave("./cs1.pdf",p2,width = 16,height = 14)
+
+```
+
+
+### 节点模块化计算和可视化
+
+```{R}
+result4 = nodeEdge(cor = cor)
+#提取变文件
+edge = result4[[1]]
+#--提取节点文件
+node = result4[[2]]
+igraph  = igraph::graph_from_data_frame(edge, directed = FALSE, vertices = node)
+res = ZiPiPlot(igraph = igraph,method = "cluster_fast_greedy")
+p <- res[[1]]
+# p
+ggsave("./cs2.pdf",p,width = 8,height = 7)
+```
+
+### 网络性质计算
+
+22年6月升级后版本包括了16项网络属性，包括周集中老师21年NCC文章中全部属性
+
+```{R}
+dat = net_properties(igraph)
+head(dat)
+write.csv(dat, "./net_properties_igraph.csv")
+# 升级后包含的网络属性更多
+# dat = net_properties.2(igraph,n.hub = T)
+# head(dat,n = 16)
+
+```
+
+### 节点性质计算
+
+```{R}
+nodepro = node_properties(igraph)
+head(nodepro)
+write.csv(nodepro, "./node_properties_igraph.csv")
+```
+
+
+### 扩展-关键OTU挑选
+
+Hub节点是在网络中与其他节点连接较多的节点，Hub微生物就是与其他微生物联系较为紧密的微生物，可以称之为关键微生物（keystone）
+
+```{R}
+
+hub = hub_score(igraph)$vector %>%
+  sort(decreasing = TRUE) %>%
+  head(15) %>%
+  as.data.frame()
+
+colnames(hub) = "hub_sca"
+
+ggplot(hub) +
+  geom_bar(aes(x = hub_sca,y = reorder(row.names(hub),hub_sca)),stat = "identity",fill = "#4DAF4A")
+
+ggsave("./cs3.pdf",width = 5,height = 4)
+```
+
+
+### 对应随机网络构建和网络参数比对
+
+
+```{R}
+result = random_Net_compate(igraph = igraph, type = "gnm", step = 100, netName = layout)
+p1 = result[[1]]
+sum_net = result[[4]]
+p1
+head(sum_net)
+ggsave("./cs4.pdf",p1,width = 5,height = 4)
+```
+
+
+
+```{R}
+path = "./ps_result_big_614/"
+dir.create(path)
+map = sample_data(ps)
+map$Group = "one"
+sample_data(ps) = map
+result = network(ps = ps,
+                 N =100,
+                 big = TRUE,
+                 layout_net = "model_igraph2",
+                 r.threshold=0.7,
+                 method ="pearson",
+                 p.threshold=0.05,
+                 label = FALSE,
+                 path = path,
+                 zipi = TRUE)
+
+p1 = result[[1]]
+
+dat = result[[2]]
+tablename <- paste(netpath,"/co-occurrence_Grobel_net",".csv",sep = "")
+write.csv(dat,tablename)
+p = result[[5]]
+plotname1 = paste(path,"/network_all.pdf",sep = "")
+ggsave(plotname1, p1,width = 10,height = 3,limitsize = FALSE)
+
+plotname1 = paste(path,"/network_all2.pdf",sep = "")
+ggsave(plotname1, p,width = 25,height = 8,limitsize = FALSE)
+
+
+
+path = "./ps_result_micro_1000/"
+dir.create(path)
+result = network(ps = ps,
+                 N = 1000,
+                layout_net = "model_Gephi.2",
+                 r.threshold=0.6,
+                 p.threshold=0.05,
+                 label = FALSE,
+                 path = path,
+                 zipi = FALSE)
+# 多组网络绘制到一个面板
+p = result[[1]]
+p
+# 全部样本网络参数比对
+data = result[[2]]
+plotname1 = paste(path,"/network_all.jpg",sep = "")
+ggsave(plotname1, p,width = 48,height = 16,dpi = 72)
+plotname1 = paste(path,"/network_all.pdf",sep = "")
+ggsave(plotname1, p,width = 48,height = 16)
+
+tablename <- paste(path,"/co-occurrence_Grobel_net",".csv",sep = "")
+write.csv(data,tablename)
+
+
+path = "./ps_result_big_1000/"
+dir.create(path)
+result = network(ps = ps,
+                 N = 1000,
+                 big = TRUE,
+                 select_layout = TRUE,
+                  layout_net = "model_maptree2",
+                 r.threshold=0.6,
+                 p.threshold=0.05,
+                 label = FALSE,
+                 path = path,
+                 zipi = FALSE)
+# 多组网络绘制到一个面板
+p = result[[1]]
+# 全部样本网络参数比对
+data = result[[2]]
+num= 3
+# plotname1 = paste(path,"/network_all.jpg",sep = "")
+# ggsave(plotname1, p,width = 16*num,height = 16,dpi = 72)
+
+plotname1 = paste(path,"/network_all.pdf",sep = "")
+ggsave(plotname1, p,width = 10*num,height = 10,limitsize = FALSE)
+tablename <- paste(path,"/co-occurrence_Grobel_net",".csv",sep = "")
+write.csv(data,tablename)
+
+
+path = "./ps_result_1000_igraph/"
+dir.create(path)
+map = sample_data(ps)
+map$Group = "one"
+sample_data(ps) = map
+result = network(ps = ps,
+                 N = 2000,
+                 big = TRUE,
+                 select_layout = TRUE,
+                  layout_net = "model_igraph",
+                 r.threshold=0.6,
+                 p.threshold=0.05,
+                 label = FALSE,
+                 path = path,
+                 zipi = TRUE)
+
+# 多组网络绘制到一个面板
+p = result[[1]]
+# 全部样本网络参数比对
+data = result[[2]]
+num= 3
+# plotname1 = paste(path,"/network_all.jpg",sep = "")
+# ggsave(plotname1, p,width = 16*num,height = 16,dpi = 72)
+
+plotname1 = paste(path,"/network_all.pdf",sep = "")
+ggsave(plotname1, p,width = 16*num,height = 16,limitsize = FALSE)
+
+tablename <- paste(path,"/co-occurrence_Grobel_net",".csv",sep = "")
+write.csv(data,tablename)
+```
+
+
+
+
